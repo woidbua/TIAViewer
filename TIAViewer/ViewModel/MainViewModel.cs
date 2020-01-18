@@ -1,36 +1,34 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Windows;
 using System.Xml;
-using Microsoft.Win32;
 using TIAViewer.Commands;
 using TIAViewer.Model;
+using TIAViewer.Services;
 
 namespace TIAViewer.ViewModel
 {
     public class MainViewModel : ViewModelBase
     {
         private const string Title = "TIA Selection Tool - Datei-Viewer";
+
         private ObservableCollection<GraphItemViewModel> _graphItemViewModels;
+        private ObservableCollection<TypeCountViewModel> _typeCountViewModels;
+
         private RelayCommand _loadTiaFileCommand;
-        private ObservableCollection<TypeCount> _typeCounts;
 
 
         public MainViewModel()
         {
             _graphItemViewModels = new ObservableCollection<GraphItemViewModel>();
-            TypeFrequency = new Dictionary<string, int>();
-            TypeCounts = new ObservableCollection<TypeCount>();
+            _typeCountViewModels = new ObservableCollection<TypeCountViewModel>();
         }
 
-        public string LoadedFilename { get; set; }
+        public string TiaFilename { get; set; }
 
-        public TypeCount SelectedTypeCount { get; set; }
+        public string WindowTitle => !string.IsNullOrEmpty(TiaFilename) ? $"{Title} - \"{TiaFilename}\"" : Title;
 
-        public string WindowTitle => !string.IsNullOrEmpty(LoadedFilename) ? $"{Title} - \"{LoadedFilename}\"" : Title;
 
         public ObservableCollection<GraphItemViewModel> GraphItemViewModels
         {
@@ -48,26 +46,26 @@ namespace TIAViewer.ViewModel
         {
             get
             {
-                var tempItems = GraphItemViewModels
-                    .Where(graphItemViewModel => graphItemViewModel.Type == SelectedTypeCount.TypeName).ToList();
-                return new ObservableCollection<GraphItemViewModel>(tempItems);
+                return new ObservableCollection<GraphItemViewModel>(GraphItemViewModels
+                    .Where(graphItemViewModel => graphItemViewModel.Type == SelectedTypeCountViewModel.TypeName)
+                    .ToList());
             }
         }
 
 
-        public ObservableCollection<TypeCount> TypeCounts
+        public ObservableCollection<TypeCountViewModel> TypeCountViewModels
         {
-            get => _typeCounts;
+            get => _typeCountViewModels;
             private set
             {
-                if (_typeCounts == null || _typeCounts != value)
+                if (_typeCountViewModels == null || _typeCountViewModels != value)
                 {
-                    _typeCounts = value;
+                    _typeCountViewModels = value;
                 }
             }
         }
 
-        public Dictionary<string, int> TypeFrequency { get; }
+        public TypeCountViewModel SelectedTypeCountViewModel { get; set; }
 
 
         public RelayCommand LoadTiaFileCommand =>
@@ -75,76 +73,38 @@ namespace TIAViewer.ViewModel
 
         private void LoadTiaFile(object parameter)
         {
-            var ofd = new OpenFileDialog
-            {
-                Title = "Bitte selektieren Sie die gewünschte TIA-Datei",
-                Filter = @"tia file (*.tia)|*.tia",
-                InitialDirectory = Environment.UserName,
-                Multiselect = false
-            };
-
-            if (ofd.ShowDialog() != true)
+            string tiaFilepath = DialogService.OpenTiaFileDialog();
+            if (string.IsNullOrEmpty(tiaFilepath))
             {
                 return;
             }
 
-            LoadedFilename = Path.GetFileName(ofd.FileName);
-            var doc = new XmlDocument();
-
-            try
-            {
-                doc.Load(ofd.FileName);
-            }
-            catch (FileNotFoundException e)
-            {
-                MessageBox.Show(e.Message);
-                return;
-            }
+            TiaFilename = Path.GetFileName(tiaFilepath);
+            var xmlGraphItems = TiaFileService.ExtractGraphItems(tiaFilepath);
 
             GraphItemViewModels.Clear();
-            TypeCounts.Clear();
-            TypeFrequency.Clear();
+            TypeCountViewModels.Clear();
 
-            XmlElement root = doc.DocumentElement;
-
-            XmlNodeList nodeTags = root?.GetElementsByTagName("node");
-            if (nodeTags != null)
+            var typeFrequency = new Dictionary<string, int>();
+            foreach (XmlNode xmlGraphItem in xmlGraphItems)
             {
-                foreach (XmlNode nodeTag in nodeTags)
+                if (xmlGraphItem.Attributes?["Type"] == null) continue;
+                string graphItemType = xmlGraphItem.Attributes["Type"].Value;
+                if (typeFrequency.ContainsKey(graphItemType))
                 {
-                    if (nodeTag.Attributes?["Type"] == null) continue;
-                    UpdateAttributeFrequency(nodeTag.Attributes?["Type"].Value);
-                    GraphItemViewModels.Add(new GraphItemViewModel(new Node(nodeTag)));
+                    typeFrequency[graphItemType] += 1;
                 }
-            }
-
-            XmlNodeList edgeTags = root?.GetElementsByTagName("edge");
-            if (edgeTags != null)
-            {
-                foreach (XmlNode edgeTag in edgeTags)
+                else
                 {
-                    if (edgeTag.Attributes?["Type"] == null) continue;
-                    UpdateAttributeFrequency(edgeTag.Attributes?["Type"].Value);
-                    GraphItemViewModels.Add(new GraphItemViewModel(new Edge(edgeTag)));
+                    typeFrequency.Add(graphItemType, 1);
                 }
+
+                GraphItemViewModels.Add(new GraphItemViewModel(new GraphItem(xmlGraphItem)));
             }
 
-            foreach (KeyValuePair<string, int> keyValuePair in TypeFrequency)
+            foreach (var keyValuePair in typeFrequency)
             {
-                TypeCounts.Add(new TypeCount(keyValuePair.Key, keyValuePair.Value));
-            }
-        }
-
-
-        private void UpdateAttributeFrequency(string attribute)
-        {
-            if (!TypeFrequency.ContainsKey(attribute))
-            {
-                TypeFrequency.Add(attribute, 1);
-            }
-            else
-            {
-                TypeFrequency[attribute] += 1;
+                TypeCountViewModels.Add(new TypeCountViewModel(new TypeCount(keyValuePair.Key, keyValuePair.Value)));
             }
         }
     }

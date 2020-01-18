@@ -1,4 +1,5 @@
-﻿using TIAViewer.Model;
+﻿using TIAViewer.Enums;
+using TIAViewer.Model;
 
 namespace TIAViewer.ViewModel
 {
@@ -15,6 +16,10 @@ namespace TIAViewer.ViewModel
 
         public string Type => _graphItem.Type;
 
-        public string Name => _graphItem.Name;
+        public GraphItemElement Element => _graphItem.Element;
+
+        public string Name => _graphItem.Properties.ContainsKey("Name")
+            ? _graphItem.Properties["Name"]
+            : _graphItem.Properties["Id"];
     }
 }
